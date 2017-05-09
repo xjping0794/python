@@ -23,14 +23,6 @@ def execlog(msg):
                          datefmt='%a, %Y %m %d %H:%M:%S',
                          filename='/data2/http/log/signal_data_check.log',
                          filemode='a')
-    # 定义一个Handler打印INFO及以上级别的日志到sys.stderr
-    # console = logging.StreamHandler()
-    # console.setLevel(logging.WARNING)
-    # # 设置日志打印格式
-    # formatter = logging.Formatter ('%(name)-12s: %(levelname)-8s %(message)s')
-    # console.setFormatter (formatter)
-    # # 将定义好的console日志handler添加到root logger
-    # logging.getLogger('').addHandler (console)
     logging.info(msg)
 
 class load_config():
