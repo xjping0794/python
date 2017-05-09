@@ -1,5 +1,12 @@
 #!/usr/bin/env python
 # -*-coding:utf-8 -*-
+# Script Name		: signal_data_check.py
+# Author		    : xjping0794
+# Created		    : 9 May 2017
+# Last Modified		:
+# Version		    : 2.6
+# Modifications	    :  
+# Description	    : check file content including field num verification,field length checksum,number verification,date verification
 import ConfigParser
 import os,sys,socket
 import re,logging,time,datetime
