@@ -13,7 +13,7 @@ import re,logging,time,datetime
 from ftplib import FTP
 
 CONFIG_FILE_NAME="/data2/http/bin/signal_field.cfg"
-statsmin="201705082100"
+statsmin="201705111013"
 endmin="202001012359"
 
 def filewarnlog(msg):
@@ -166,7 +166,13 @@ if __name__ == "__main__":
         while ftperrflag<>0:
             try:
                 ftpdownloadfile(statsmin)
-                ftperrflag=0
+                # 若文件不存在则等待1分钟后再扫描
+                if re.search(statsmin,downloadfile):
+                    ftperrflag=0
+                else:
+                    ftperrflag=1
+                    time.sleep(5)
+                    logging.warning(statsmin+" 点文件,数据源尚未准备好,等待1分钟后再次扫描")
             except (socket.error, socket.gaierror):
                 logging.error("cannot reach 10.173.45.14")
                 ftperrflag=1
