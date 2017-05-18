@@ -1,19 +1,19 @@
-#!/usr/bin/env python
+#!/usr/bin/env pypy
 # -*-coding:utf-8 -*-
-# Script Name		: signal_data_check.py
-# Author		    : xjping0794
-# Created		    : 9 May 2017
-# Last Modified		:
-# Version		    : 2.6
-# Modifications	    :  
-# Description	    : check file content including field num verification,field length checksum,number verification,date verification
+# Script Name           : signal_data_check.py
+# Author                    : xjping0794
+# Created                   : 9 May 2017
+# Last Modified         :
+# Version                   : 2.6
+# Modifications     :
+# Description       : check file content including field num verification,field length checksum,number verification,date verification
 import ConfigParser
 import os,sys,socket
 import re,logging,time,datetime
 from ftplib import FTP
 
 CONFIG_FILE_NAME="/data2/http/bin/signal_field.cfg"
-statsmin="201705111013"
+statsmin="201705172114"
 endmin="202001012359"
 
 def filewarnlog(msg):
@@ -23,14 +23,13 @@ def filewarnlog(msg):
     f.write(str(curstdtime)+"\t"+":"+msg+"\n")  # write text to file
     f.close()  # close the file
     print msg
-    logging.warning(msg)
-def execlog(msg):
-    logging.basicConfig(level=logging.DEBUG,
-                         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
-                         datefmt='%a, %Y %m %d %H:%M:%S',
-                         filename='/data2/http/log/signal_data_check.log',
-                         filemode='a')
-    logging.info(msg)
+# def logging.info(msg):
+#     logging.basicConfig(level=logging.DEBUG,
+#                          format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+#                          datefmt='%a, %Y %m %d %H:%M:%S',
+#                          filename='/data2/http/log/signal_data_check.log',
+#                          filemode='a')
+#     logging.info(msg)
 
 class load_config():
     """加载信令配置文件"""
@@ -87,15 +86,52 @@ class data_check():
         start_time=datetime.datetime.fromtimestamp(int(start_time))
         file_time=transtostdtime(file_time)
         minustime(data_file_name, lineno, start_time, file_time)
+    def check_flow(self,data_file_name,lineno,upflow,downflow):
+        try:
+            if int(upflow) >= 5368709120:
+                filewarnlog ("数据文件名： " + data_file_name + " 行号：" + str (lineno) + " 中上行流量：" + str(upflow) + " 大于5G")
+            if int(downflow) >= 5368709120:
+                filewarnlog ("数据文件名： " + data_file_name + " 行号：" + str (lineno) + " 中下行流量：" + str(downflow) + " 大于5G")
+        except:
+            filewarnlog ("数据文件名： " + data_file_name + " 行号：" + str (lineno) + " 中上行流量：" + str (upflow) + " 下行流量：" + str (downflow) + " 存在非数值内容")
+    def check_lac_cell(self,data_file_name,lineno,lac,cell):
+        if lac not in lacid:
+            filewarnlog ("数据文件名： " + data_file_name + " 行号：" + str (lineno) + " 中基站lac：" + str (lac) + " 不在维表中")
+
+        if cell not in cellid:
+            filewarnlog("数据文件名： " + data_file_name + " 行号：" + str (lineno) + " 中基站cell：" + str (cell) + " 不在维表中")
+
+def read_lac_cell_config():
+    global lacid,cellid
+    f = open (r"/data2/http/bin/td_np_cell", 'r')
+    sourceInLines = f.readlines ()
+    f.close ()
+    lac = []
+    cell = []
+    for line in sourceInLines:
+        lac.append (line.replace("\n","").split (',')[0])
+        try:
+            hexval=hex(int(line.replace("\n","").split (',')[1])).upper()
+            if hexval.startswith('0X'):
+                cell.append(hexval[2:])
+        except ValueError:
+            logging.error("维表中cell字段值:"+line.replace("\n","").split (',')[1]+" 异常,抛出并不参与比对")
+    lacid=list(set(lac))
+    cellid=list(set(cell))
 
 def readini():
     global config_map,cffieldnum,cf_msisdn_row_position,cf_starttime_row_position,cf_endtime_row_position
+    global lac_position,cell_position,upflow_position,downflow_position
     config_map=load_config().load_signal_map()
     cffieldnum=load_config().get_config_value(config_map,'fieldnum')
     cffield1loc,cffield1len=load_config().get_config_value(config_map,'field1len').split(",")
     cf_msisdn_row_position=load_config().get_config_value(config_map,'msisdn_row_position')
     cf_starttime_row_position=load_config().get_config_value(config_map,'starttime_row_position')
     cf_endtime_row_position=load_config().get_config_value(config_map,'endtime_row_position')
+    lac_position = load_config().get_config_value(config_map,'lac_row_position')
+    cell_position = load_config().get_config_value(config_map,'cell_row_position')
+    upflow_position = load_config().get_config_value(config_map,'upflow_row_position')
+    downflow_position = load_config().get_config_value(config_map,'downflow_row_position')
 
 def minustime(data_file_name,lineno,date1,date2):
     if str(date1) > str(date2):
@@ -108,6 +144,12 @@ def minustime(data_file_name,lineno,date1,date2):
     date2 = datetime.datetime (date2[0], date2[1], date2[2], date2[3], date2[4], date2[5])
     timedel=date2 - date1
     return parsetimedel(data_file_name,lineno,timedel)
+
+def hextoint(paramvalue):
+    try:
+        return int(str(paramvalue),16)
+    except:
+        return False
 
 def parsetimedel(data_file_name,lineno,timevalue):
     "解析时间差，偏差在4个小时以上即输出"
@@ -151,17 +193,24 @@ def ftpdownloadfile(dealtime):
     filename = 'RETR ' + downloadfile  # 保存FTP文件
     ftp.retrbinary(filename, f.write)  # 保存FTP上的文件
     ftp.quit()  # 退出FTP服务器
-    execlog("结束下载")
+    logging.info("结束下载")
 
 if __name__ == "__main__":
+    logging.basicConfig (level=logging.DEBUG,
+                         format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+                         datefmt='%a, %Y %m %d %H:%M:%S',
+                         filename='/data2/http/log/signal_data_check.log',
+                         filemode='a')
     readini()
-    execlog("读取配置文件："+"\n"+"cffieldnum:"+cffieldnum+"\n"+"cf_msisdn_row_position:"+cf_msisdn_row_position)
+    read_lac_cell_config()
+    print cellid[0:10]
+    logging.info("读取配置文件："+"\n"+"cffieldnum:"+cffieldnum+"\n"+"cf_msisdn_row_position:"+cf_msisdn_row_position)
     """基于性能考虑，每次仅校验一个文件/每分钟"""
     while statsmin <= endmin:
-        # downloadfile="S1U-103-20170508173000-097-11.txt"
+        # downloadfile="S1U-103-20170517210500-047-11.txt"
         # absfilename = '/data2/http/' + downloadfile
-        execlog("开始时间为:"+statsmin+"的文件校验")
-        execlog("1、ftp下载文件")
+        logging.info("开始时间为:"+statsmin+"的文件校验")
+        logging.info("1、ftp下载文件")
         ftperrflag=1
         while ftperrflag<>0:
             try:
@@ -179,8 +228,8 @@ if __name__ == "__main__":
                 logging.warning("sleep 60 seconds to try again")
                 time.sleep(60)
 
-        execlog("待校验文件名:"+absfilename)
-        execlog("2、开始校验文件数据：校验内容有字段数、字段长度、电话号码、时间。")
+        logging.info("待校验文件名:"+absfilename)
+        logging.info("2、开始校验文件数据：校验内容有字段数、字段长度、电话号码、时间、流量、基站。")
 
         """
         使用 with 结构,对可迭代对象 file，进行迭代遍历：for line in file，会自动地使用缓冲IO（buffered IO）以及内存管理，
@@ -196,7 +245,8 @@ if __name__ == "__main__":
                     lineno += 1
                     # 校验字段数
                     if not datacheck.check_field_num(cffieldnum,len(line.split("|"))):
-                        filewarnlog("数据文件名： "+downloadfile+" 行号："+str(lineno)+" 字段数不过, 数据字典中字段数为"+cffieldnum+" 文件传过来字段数为"+len(line.split ("|")))
+                        filewarnlog("数据文件名： "+downloadfile+" 行号："+str(lineno)+" 字段数不过, 数据字典中字段数为"+str(cffieldnum)+" 文件传过来字段数为"+str(len(line.split ("|"))))
+                        continue
                     # 校验字段长度
                     # for field in loadconfig.get_len_option(config_map):
                     #     cffieldloc, cffieldlen=loadconfig.get_config_value(config_map,field).split(",")
@@ -210,14 +260,24 @@ if __name__ == "__main__":
                     endtime=line.split("|")[int(cf_endtime_row_position)][0:10].rstrip()
                     filetime=re.search(r'S1U-\d{1,}-(\d{14})-\d{1,}-\d{1,}',downloadfile).group(1)
                     datacheck.check_time_valid(downloadfile,lineno,starttime,endtime,filetime)
+                    # 校验流量
+                    upflow=line.split("|")[int(upflow_position)].rstrip()
+                    downflow=line.split("|")[int(downflow_position)].rstrip()
+                    datacheck.check_flow(downloadfile,lineno,upflow,downflow)
+                    # 校验基站
+                    lac = line.split ("|")[int (lac_position)].rstrip ()
+                    cell = line.split ("|")[int (cell_position)].rstrip()
+                    datacheck.check_lac_cell(downloadfile,lineno,lac,cell)
+
+
         except IOError:
             logging.error(absfilename+"文件不存在")
             time.sleep(60)
             retry=1
         if retry == 1:
-            execlog("3、重新开始处理" + statsmin+"的文件校验")
+            logging.info("3、重新开始处理" + statsmin+"的文件校验")
             statsmin = getminutesago(statsmin, 0)
         else:
-            execlog("3、结束文件名校验:"+absfilename)
+            logging.info("3、结束文件名校验:"+absfilename)
             time.sleep(5)
             statsmin=getminutesago(statsmin,-1)  #获取后一分钟时间
